@@ -3,25 +3,56 @@ package internble
 import (
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/saltosystems/winrt-go/windows/devices/bluetooth/genericattributeprofile"
 	"log"
 	"time"
 	"tinygo.org/x/bluetooth"
 )
 
 var (
-	bleConnDevice    bluetooth.Device
-	bleTimer         *time.Timer
-	bleBot           *tgbotapi.BotAPI
-	bleAdapter       bluetooth.Adapter
-	bleAdvertiser    bluetooth.Advertisement
-	bleChatId        int64
-	bleScannedAmount int
-	bleStatus        string
+	ble        bleStruct
+	bleTimer   *time.Timer
+	bleBot     *tgbotapi.BotAPI
+	bleAdapter bluetooth.Adapter
+	bleChatId  int64
 )
 
-var bleScanBotList [40]struct {
-	scannedAddress bluetooth.Address
-	messageId      int
+type bleStruct struct {
+	scan    bleScan
+	connect bleConnDevice
+}
+
+type bleScan struct {
+	scanStatus       bool
+	bleScannedAmount int
+	scanList         []bleScannedDev
+}
+
+type bleScannedDev struct {
+	device  bluetooth.ScanResult
+	message tgbotapi.Message
+}
+
+type bleConnDevice struct {
+	connStatus     bool
+	message        tgbotapi.Message
+	device         bluetooth.Device
+	servicesAmount int
+	services       []bleConnDevService
+}
+
+type bleConnDevService struct {
+	uuid                  bluetooth.UUID
+	name                  string
+	service               genericattributeprofile.GattDeviceService
+	characteristicsAmount int
+	characteristics       []bleConnDecChars
+}
+type bleConnDecChars struct {
+	uuid           bluetooth.UUID
+	name           string
+	characteristic genericattributeprofile.GattCharacteristic
+	properties     genericattributeprofile.GattCharacteristicProperties
 }
 
 const (
@@ -29,15 +60,10 @@ const (
 )
 
 const (
-	bleMessageHeader = "BOT:"
-)
-
-const (
-	bleNotReadyStatus    = "not ready"
-	bleReadyStatus       = "ready"
-	bleConnectedStatus   = "connected"
-	bleAdvertisingStatus = "advertising"
-	bleScanningStatus    = "scanning"
+	bleNotReadyStatus  = "not ready"
+	bleReadyStatus     = "ready"
+	bleConnectedStatus = "connected"
+	bleScanningStatus  = "scanning"
 )
 
 // BleBotInit /*******************************************************************************
@@ -57,96 +83,78 @@ func BleUpdate() {
 	updates := bleBot.GetUpdatesChan(updatesConfig)
 	//----------------------------------------------------------------------------------------
 	for v := range updates {
+		bleTimerStop()
+		bleTimerStart(v, bleBot)
 		if v.Message != nil {
 			if bleCheckChatId(v.Message, bleBot) != 0 {
 				bleDeleteUserMessage(v.Message.MessageID, bleBot)
-				switch v.Message.Command() {
-				case "start":
-					bleStartCmd(v, bleBot)
-				case "scan":
-					bleScanCmd(v, bleBot)
-				case "advert":
-					bleAdvertCmd(v, bleBot)
-				case "stop":
-					bleStopCmd(v, bleBot)
-				case "exit":
-					bleExitCmd(v, bleBot)
-				}
+				bleMainKeyboardHandler(v, bleBot, v.Message.Command())
 			}
 		}
+		//----------------------------------------------------------------------------------------
 		if v.CallbackQuery != nil {
 			if bleCheckChatId(v.CallbackQuery.Message, bleBot) != 0 {
-				data := v.CallbackQuery.Data
-				switch data {
-				case "connect":
-					bleConnectSubCmd(v, bleBot)
-				case "disconnect":
-					bleDisconnectSubCmd(v, bleBot)
-				case "getChars":
-					bleGetCharsSubCmd(v, bleBot)
-				case "readChar":
-					//bleReadCharSubCmd(v, bleBot)
-				case "writeChar":
-					//bleWriteCharSubCmd(v, bleBot)
-				}
+				bleInlineKeyboardHandler(v, bleBot, v.CallbackQuery.Data)
 			}
 		}
 	}
 }
 
-// setStatusMenu /*******************************************************************************
-func setStatusMenu(statusButtonTemp string, msg *tgbotapi.MessageConfig) {
-	var menuKeyboard = tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("status: "+statusButtonTemp),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("/scan"),
-			tgbotapi.NewKeyboardButton("/advert"),
-			tgbotapi.NewKeyboardButton("/stop"),
-			tgbotapi.NewKeyboardButton("/exit"),
-		),
-	)
-	msg.ReplyMarkup = menuKeyboard
-}
-
-// onScan /*******************************************************************************
-func onScan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
-	var elemInlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Connect", "connect"),
-		),
-	)
-	if bleScannedAmount != 0 {
-		temp := bleScannedAmount - 1
-		for temp >= 0 {
-			if bleScanBotList[temp].scannedAddress == device.Address {
-				return
-			}
-			temp--
-		}
-	}
-	deviceInfo := fmt.Sprintf(
-		"Status: not connected\n"+
+// bleOnScan /*******************************************************************************
+// Когда передаешь стёроку в отправку он ее форматирует как то странно и возвращает другую, тоже
+// самое происходит и с join
+func bleOnScan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
+	var err error
+	var curMessageText string
+	var sendMessage tgbotapi.Message
+	description := fmt.Sprintf(
+		"[DEVICE DESCRIPTION]\n"+
+			"Status: not connected\n"+
 			"Local Name: %s\n"+
 			"MAC: %s\n"+
 			"RSSI: %d\n"+
-			"Advertisement Payload: ",
+			"Advertisement Payload:\n",
 		device.LocalName(),
 		device.Address.String(),
 		device.RSSI)
-	msg := tgbotapi.NewMessage(bleChatId, deviceInfo)
-	msg.ReplyMarkup = elemInlineKeyboard
-	messageTemp, err := bleBot.Send(msg)
+	//----------------------------------------------------------------------------------------
+	if ble.scan.bleScannedAmount != 0 {
+		for _, v := range ble.scan.scanList {
+			if v.device.Address == device.Address {
+				curMessageText = v.message.Text
+				if v.device.LocalName() == "" && device.LocalName() != "" {
+					curMessageText = bleMessageEdit(curMessageText, fmt.Sprintf("Local Name: %s", device.LocalName()), bleMsgDescrFormatLocalName)
+					msg := tgbotapi.NewEditMessageText(v.message.Chat.ID, v.message.MessageID, curMessageText)
+					msg.ReplyMarkup = v.message.ReplyMarkup
+					v.message, err = bleBot.Send(msg)
+					if err != nil {
+						log.Printf("ERROR %v: Cant send message about scanned device: %s, %s", err, device.Address.String(), device.LocalName())
+					}
+				}
+				if v.device.RSSI != device.RSSI {
+					curMessageText = bleMessageEdit(curMessageText, fmt.Sprintf("RSSI: %d", device.RSSI), bleMsgDescrFormatRSSI)
+					msg := tgbotapi.NewEditMessageText(v.message.Chat.ID, v.message.MessageID, curMessageText)
+					msg.ReplyMarkup = v.message.ReplyMarkup
+					v.message, err = bleBot.Send(msg)
+					if err != nil {
+						log.Printf("ERROR %v: Cant send message about scanned device: %s, %s", err, device.Address.String(), device.LocalName())
+					}
+				}
+				return
+			}
+		}
+	}
+	//----------------------------------------------------------------------------------------
+	msg := tgbotapi.NewMessage(bleChatId, description)
+	elemInlineKeyboard := []bleInlineButton{{Title: "Connect", Data: "connect"}}
+	msg.ReplyMarkup = bleInlineKeyboardConfig(elemInlineKeyboard)
+	sendMessage, err = bleBot.Send(msg)
 	if err != nil {
 		log.Printf("ERROR %v: Cant send message about scanned device: %s, %s", err, device.Address.String(), device.LocalName())
 	}
-	bleScanBotList[bleScannedAmount].scannedAddress = device.Address
-	bleScanBotList[bleScannedAmount].messageId = messageTemp.MessageID
-	bleScannedAmount++
-	if bleScannedAmount >= 40 {
-		bleScannedAmount = 0
-	}
+	//----------------------------------------------------------------------------------------
+	ble.scan.scanList = append(ble.scan.scanList, bleScannedDev{device, sendMessage})
+	ble.scan.bleScannedAmount++
 }
 
 // bleCheckChatId /*******************************************************************************
@@ -165,43 +173,20 @@ func bleCheckChatId(message *tgbotapi.Message, bot *tgbotapi.BotAPI) int {
 }
 
 // bleTimerProc /*******************************************************************************
-func bleTimerProc(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
-	var err error
-	bleTimer = time.NewTimer(5 * time.Minute)
-	go func() {
-		<-bleTimer.C
-		bleChatId = 0
-		err = bleAdapter.StopScan()
-		if err != nil {
-			log.Printf("ERROR %v: Cant stop scanning", err)
-		}
-		err = bleAdvertiser.Stop()
-		if err != nil {
-			log.Printf("ERROR %v: Cant stop advert", err)
-		}
-		bleScannedAmount = 0
-		bleStatus = bleNotReadyStatus
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"AFK 5MIN TIMEOUT")
-		msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about timeout", err)
-		}
-	}()
+func bleTimerStart(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
+	bleTimer = time.AfterFunc(5*time.Minute, func() {
+		bleExitCmd(update, bot)
+	})
 }
 
 // bleTimerStop /*******************************************************************************
 func bleTimerStop() {
 	if bleTimer != nil {
-		stop := bleTimer.Stop()
-		if !stop {
-			log.Panicf("PANIC: Cant stop timer")
+		if bleTimer.C != nil {
+			stop := bleTimer.Stop()
+			if !stop {
+				log.Printf("ERROR: Cant stop timer")
+			}
 		}
 	}
-}
-
-// bleDeleteUserMessage /*******************************************************************************
-func bleDeleteUserMessage(messageID int, bot *tgbotapi.BotAPI) {
-	msg := tgbotapi.NewDeleteMessage(bleChatId, messageID)
-	_, _ = bot.Send(msg)
 }
