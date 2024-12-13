@@ -6,99 +6,79 @@ import (
 	"tinygo.org/x/bluetooth"
 )
 
-// bleStartCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleStartCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	var adapter bluetooth.Adapter
 	var err error
 	if bleChatId != 0 {
 		log.Printf("ERROR: BLE adater already started")
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"ALREADY STARTED")
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about already started ble adapter", err)
-		}
+		bleMessageSend(update, bot, "", nil, "ALREADY STARTED")
 		return
 	}
-	//----------------------------------------------------------------------------------------
+	//--------------------------------------------------------
 	bleChatId = update.Message.Chat.ID
 	err = adapter.Enable()
 	if err != nil {
 		log.Printf("ERROR: Failed to start ble adapter")
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"FAILED TO START BLE ADAPTER")
-		msgKeyboard := []string{"/exit"}
-		msg.ReplyMarkup = bleKeyboardConfig(bleNotReadyStatus, msgKeyboard)
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about failed to start ble adapter", err)
-		}
+		bleMessageSend(update, bot, bleNotReadyStatus, []string{"/exit"}, "FAILED TO START BLE ADAPTER")
 	} else {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BLE ADAPTER STARTED SUCCESSFULLY")
-		msgKeyboard := []string{"/scan", "/exit"}
-		msg.ReplyMarkup = bleKeyboardConfig(bleReadyStatus, msgKeyboard)
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about successfully started adapter", err)
-		}
+		bleMessageSend(update, bot, bleReadyStatus, []string{"/scan", "/exit"}, "BLE ADAPTER STARTED SUCCESSFULLY")
 	}
 }
 
-// bleScanCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleScanCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
-	var err error
 	if ble.scan.scanStatus {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BLE SCANNING ALREADY STARTED")
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about salready started scanning", err)
-		}
+		bleMessageSend(update, bot, "", nil, "BLE SCANNING ALREADY STARTED")
 		return
 	}
 	ble.scan.bleScannedAmount = 0
 	ble.scan.scanList = nil
 	go bleAdapter.Scan(bleOnScan)
 	ble.scan.scanStatus = true
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"START SCANNING")
-	msgKeyboard := []string{"/stopScan", "/exit"}
-	msg.ReplyMarkup = bleKeyboardConfig(bleScanningStatus, msgKeyboard)
-	_, err = bot.Send(msg)
-	if err != nil {
-		log.Printf("ERROR %v: Cant send message about successfully started scanning", err)
-	}
+	bleMessageSend(update, bot, bleScanningStatus, []string{"/stopScan", "/exit"}, "START SCANNING")
 }
 
-// bleStopScanCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleStopScanCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	var err error
 	if !ble.scan.scanStatus {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BLE SCANNING ALREADY STOPPED")
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about salready stopped scanning", err)
-		}
+		bleMessageSend(update, bot, "", nil, "BLE SCANNING ALREADY STOPPED")
 		return
 	}
 	err = bleAdapter.StopScan()
 	if err != nil {
-		log.Printf("ERROR %v: Cant stop scanning", err)
+		bleMessageSend(update, bot, "", nil, "CANT STOP SCANNING")
 		return
 	}
 	ble.scan.scanStatus = false
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BLE SCANNING WAS STOPPED")
-	msgKeyboard := []string{"/scan", "/exit"}
-	msg.ReplyMarkup = bleKeyboardConfig(bleReadyStatus, msgKeyboard)
-	_, err = bot.Send(msg)
-	if err != nil {
-		log.Printf("ERROR %v: Cant send message about successfully stoped scanning", err)
-	}
+	bleMessageSend(update, bot, bleReadyStatus, []string{"/scan", "/exit"}, "BLE SCANNING WAS STOPPED")
 }
 
-// bleExitCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
+
 func bleExitCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	var err error
 	if ble.scan.scanStatus {
 		err = bleAdapter.StopScan()
 		if err != nil {
-			log.Printf("ERROR %v: Cant stop scanning", err)
+			bleMessageSend(update, bot, "", nil, "CANT STOP SCANNING")
 			return
 		} else {
 			ble.scan.scanStatus = false
@@ -106,11 +86,11 @@ func bleExitCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 			ble.scan.scanList = nil
 		}
 	}
-	//----------------------------------------------------------------------------------------
+	//-------------------------------------------------------
 	if ble.connect.connStatus {
 		err = ble.connect.device.Disconnect()
 		if err != nil {
-			log.Printf("ERROR %v: Cant disconnect", err)
+			bleMessageSend(update, bot, "", nil, "CANT DISCONNECT")
 			return
 		} else {
 			inlineButtons := []bleInlineButton{{Title: "Connect", Data: "connect"}}
@@ -127,33 +107,28 @@ func bleExitCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 			ble.connect.connStatus = false
 		}
 	}
-	//----------------------------------------------------------------------------------------
+	//-------------------------------------------------------
 	bleChatId = 0
 	bleTimerStop()
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BOT STOPPED")
-	msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
-	_, err = bot.Send(msg)
-	if err != nil {
-		log.Printf("ERROR %v: Cant send message about successfully stoped bot", err)
-	}
+	bleMessageSend(update, bot, "", []string{"REMOVE"}, "BOT STOPPED")
 }
 
-// bleConnectSubCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleConnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	var err error
 	if ble.connect.connStatus {
-		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, bleMessageHeader+"BLE ALREADY CONNECTED TO SOME DEVICE")
-		_, err = bot.Send(msg)
-		if err != nil {
-			log.Printf("ERROR %v: Cant send message about salready connected", err)
-		}
+		bleMessageSend(update, bot, "", nil, "BLE ALREADY CONNECTED TO SOME DEVICE")
 		return
 	}
-	for _, v := range ble.scan.scanList {
-		if ble.scan.bleScannedAmount != 0 {
+	if ble.scan.bleScannedAmount != 0 {
+		for _, v := range ble.scan.scanList {
 			if v.message.MessageID == update.CallbackQuery.Message.MessageID {
 				var params bluetooth.ConnectionParams
-				//----------------------------------------------------------------------------------------
+				//--------------------------------------------
 				ble.connect.device, err = bleAdapter.Connect(v.device.Address, params)
 				if err != nil {
 					ble.connect.connStatus = false
@@ -169,7 +144,7 @@ func bleConnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 					}
 					return
 				}
-				//----------------------------------------------------------------------------------------
+				//----------------------------------------------
 				inlineButtons := []bleInlineButton{{Title: "Services", Data: "getServices"}, {Title: "Disconnect", Data: "disconnect"}}
 				msg1 := tgbotapi.NewEditMessageTextAndMarkup(
 					update.CallbackQuery.Message.Chat.ID,
@@ -183,7 +158,7 @@ func bleConnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 				if err != nil {
 					log.Printf("ERROR %v: Cant send message about successefull connection", err)
 				}
-				//----------------------------------------------------------------------------------------
+				//----------------------------------------------
 				msg2 := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, bleMessageHeader+"STATUS UPDATE")
 				keyboard := []string{"/scan", "/exit"}
 				msg2.ReplyMarkup = bleKeyboardConfig(bleConnectedStatus+" to "+v.device.Address.String(), keyboard)
@@ -197,10 +172,14 @@ func bleConnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	}
 }
 
-// bleDisconnectSubCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleDisconnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	var err error
-	//----------------------------------------------------------------------------------------
+	//--------------------------------------------------------
 	if !ble.connect.connStatus {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, bleMessageHeader+"BLE ALREADY NOT CONNECTED")
 		_, err = bot.Send(msg)
@@ -226,7 +205,7 @@ func bleDisconnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	if err != nil {
 		log.Printf("ERROR %v: Cant send message about successfully disconnect", err)
 	}
-	//----------------------------------------------------------------------------------------
+	//---------------------------------------------------------
 	msg2 := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, bleMessageHeader+"STATUS UPDATE")
 	keyboard := []string{"/scan", "/exit"}
 	msg2.ReplyMarkup = bleKeyboardConfig(bleReadyStatus, keyboard)
@@ -236,10 +215,14 @@ func bleDisconnectSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	}
 }
 
-// bleGetCharsSubCmd /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleGetServicesSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 	/*	var err error
-		//----------------------------------------------------------------------------------------
+		//----------------------------------------------------
 		serviceList, err := ble.connect.device.DiscoverServices(nil)
 		var sb strings.Builder
 		sb.WriteString("Data:\n")
@@ -261,6 +244,5 @@ func bleGetServicesSubCmd(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 		if err != nil {
 			log.Printf("ERROR %v: Cant send message about successfully disconnect", err)
 		}*/
-	//----------------------------------------------------------------------------------------
-
+	//--------------------------------------------------------
 }

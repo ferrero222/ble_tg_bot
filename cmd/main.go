@@ -4,7 +4,11 @@ import (
 	internble "telegrambot/intern"
 )
 
-// main /*******************************************************************************
+// main ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ************************************************************
 func main() {
 	internble.BleBotInit()
 	internble.BleUpdate()

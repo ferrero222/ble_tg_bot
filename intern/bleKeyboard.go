@@ -9,7 +9,11 @@ type bleInlineButton struct {
 	Data  string
 }
 
-// bleMainKeyboardHandler /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleMainKeyboardHandler(update tgbotapi.Update, bot *tgbotapi.BotAPI, command string) {
 	mainMenuMap := map[string]func(update tgbotapi.Update, bot *tgbotapi.BotAPI){
 		"start":    bleStartCmd,
@@ -22,7 +26,11 @@ func bleMainKeyboardHandler(update tgbotapi.Update, bot *tgbotapi.BotAPI, comman
 	}
 }
 
-// bleKeyboardConfig /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleInlineKeyboardHandler(update tgbotapi.Update, bot *tgbotapi.BotAPI, command string) {
 	inlineMenu := map[string]func(update tgbotapi.Update, bot *tgbotapi.BotAPI){
 		"connect":    bleConnectSubCmd,
@@ -48,7 +56,11 @@ func bleInlineKeyboardHandler(update tgbotapi.Update, bot *tgbotapi.BotAPI, comm
 	}
 }
 
-// bleKeyboardConfig /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleKeyboardConfig(statusButton string, buttons []string) tgbotapi.ReplyKeyboardMarkup {
 	var keyboard [][]tgbotapi.KeyboardButton
 	keyboard = append(keyboard, []tgbotapi.KeyboardButton{tgbotapi.NewKeyboardButton("status: " + statusButton)})
@@ -62,7 +74,11 @@ func bleKeyboardConfig(statusButton string, buttons []string) tgbotapi.ReplyKeyb
 	return tgbotapi.NewReplyKeyboard(keyboard...)
 }
 
-// bleInlineKeyboardConfig /*******************************************************************************
+// BleBotInit ************************************************
+// Brief:   None
+// Param:   None
+// Return:  None
+// ***********************************************************
 func bleInlineKeyboardConfig(buttons []bleInlineButton) tgbotapi.InlineKeyboardMarkup {
 	var inlineKeyboard [][]tgbotapi.InlineKeyboardButton
 	for _, btn := range buttons {
